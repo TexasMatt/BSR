@@ -12,6 +12,8 @@ PS2 mouse(6, 5);
  */
 const int CS_PIN = 9; // POT Chip Select
 const int SPI_SS_PIN = 10; 
+const int PEDAL_INPUT_PIN = 2; // The sewing machine pedal goes between here and ground
+const int REED_SWITCH_PIN = 3;
 const float POT_MULTIPLIER = 25.6; // The bigger this number the smaller the stitches will be
 
 /*
@@ -52,6 +54,8 @@ void setup()
   SPI.begin();
   pinMode(CS_PIN, OUTPUT);
   pinMode(SPI_SS_PIN, OUTPUT);
+  pinMode(PEDAL_INPUT_PIN, INPUT_PULLUP);
+  pinMode(REED_SWITCH_PIN, OUTPUT);
   digitalWrite(CS_PIN, LOW);
   SPI.transfer(0);
   SPI.transfer(0);
@@ -62,12 +66,7 @@ void setup()
   }
 }
 
-/*
- * get a reading from the mouse and report it back to the
- * host via the serial line.
- */
-void loop()
-{
+float read_mouse_distance() {
   char mstat;
   char mx;
   char my;
@@ -79,14 +78,19 @@ void loop()
   mx = mouse.read();
   my = mouse.read();
 
-  /* calculate distance traveled , pythagoras theorem */
-  float distance;
-  int potValue;
-  int unconstrainedPotValue;
+/*
+  Serial.print(mstat, BIN);
+  Serial.print("\tX=");
+  Serial.print(mx, DEC);
+  Serial.print("\tY=");
+  Serial.print(my, DEC);
+  */
+  
+  return sqrt(sq(abs(mx)) + sq(abs(my)));
+}
+
+void apply_smoothing(float distance) {
   int numNonZeroReadings;
-
-  distance = sqrt(sq(abs(mx)) + sq(abs(my))); 
-
   // subtract the last reading:
   total = total - readings[readIndex];
   // read from the sensor:
@@ -113,6 +117,40 @@ void loop()
   } else {
     average = total / numNonZeroReadings;
   }
+
+  Serial.print("\tD=");
+  Serial.print(distance, 2);
+  Serial.print("\t#=");
+  Serial.print(numNonZeroReadings, DEC);
+}
+
+/*
+ * If the foot pedal is pressed then close the curcuit to the POT wiper pin
+ */
+void check_foot_pedal() {
+  if (digitalRead(PEDAL_INPUT_PIN) == LOW) {
+    digitalWrite(REED_SWITCH_PIN, HIGH);
+  }
+  else {
+    digitalWrite(REED_SWITCH_PIN, LOW);
+  }
+}
+
+/*
+ * get a reading from the mouse and report it back to the
+ * host via the serial line.
+ */
+void loop()
+{
+  /* calculate distance traveled , pythagoras theorem */
+  float distance;
+  int potValue;
+  int unconstrainedPotValue;
+
+  check_foot_pedal();
+  distance = read_mouse_distance(); 
+  apply_smoothing(distance);
+  
   unconstrainedPotValue = round(average * POT_MULTIPLIER); // Compare this to the potValue and sound the buzzer if the difference is greater than something.
   potValue = constrain(unconstrainedPotValue, 0, 128);
 
@@ -120,21 +158,12 @@ void loop()
   SPI.transfer(potValue);
 
   /* send the data back up */
-  /*
-  Serial.print(mstat, BIN);
-  Serial.print("\tX=");
-  Serial.print(mx, DEC);
-  Serial.print("\tY=");
-  Serial.print(my, DEC);
-  */
-  Serial.print("\tD=");
-  Serial.print(distance, DEC);
-  Serial.print("\t#=");
-  Serial.print(numNonZeroReadings, DEC);
+  
+
   Serial.print("\tAVG_D=");
-  Serial.print(average, DEC);
+  Serial.print(average, 2);
   Serial.print("\tPOT=");
   Serial.print(potValue, DEC);
   Serial.println();
-  delay(5); // The POT IC need time to settle
+  delay(10); // The POT IC need time to settle
 }
